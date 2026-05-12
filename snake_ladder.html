@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Snake & Ladder</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+/* ==== Layout ==== */
+body {
+  font-family:Arial,Helvetica,sans-serif;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  margin:0;
+  background:#2c3e50;
+  color:#eee;
+}
+#game {
+  display:grid;
+  grid-template-columns: repeat(10, 1fr);
+  width: min(90vw, 600px);
+  aspect-ratio: 1;
+  gap:1px;
+  background:#34495e;
+  margin-top:1rem;
+  position:relative;
+}
+.cell {
+  background:#2c3e50;
+  color:#ecf0f1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:0.8rem;
+  position:relative;
+}
+.cell:nth-child(odd) { background:#34495e; }
+.cell.active { background:#1abc9c; box-shadow:0 0 8px 2px #f1c40f inset; }
+
+/* ==== Tokens ==== */
+.token {
+  /* responsive size: 24‑32 px */
+  width: clamp(24px, 2.5vw, 32px);
+  height: clamp(24px, 2.5vw, 32px);
+  border-radius:50%;
+  border:2px solid #fff;
+  box-shadow:0 0 4px rgba(0,0,0,0.5);
+  position:absolute;
+  top:0; left:0;
+  /* Ensure transform origins are centered for both tokens */
+  transform-origin: center;
+  z-index:10;
+}
+.player1 { background:#e91e63; animation:glow 2s infinite; }
+.player2 { background:#03a9f4; animation:glow 2s infinite; }
+
+
+@keyframes glow {
+  0%,100% { box-shadow:0 0 6px 2px rgba(255,255,255,.4); }
+  50%    { box-shadow:0 0 12px 4px rgba(255,255,255,.9); }
+}
+
+/* ==== Dice ==== */
+#diceBtn {
+  margin-top:1rem;
+  padding:.6rem 1.2rem;
+  font-size:1rem;
+  cursor:pointer;
+}
+#diceBtn:disabled { opacity:.5; cursor:not-allowed; }
+
+/* ==== Dice animation ==== */
+/* Size the dice relative to a board cell */
+:root { --cell-perc: calc(100%/10); }
+#dice {
+  /* use cell size (minus a small gap) so dice fits inside a board square */
+  width: calc(var(--cell-perc) - 4px);
+  height: calc(var(--cell-perc) - 4px);
+  margin-top:.5rem;
+  background:#555;
+  border-radius:6px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  /* make the pip size proportional to the dice size */
+  font-size: calc(var(--cell-perc) * 0.6);
+  visibility:hidden;
+}
+
+/* Two dice for two players – blue & red (same size, colored backgrounds) */
+.dice-player {
+  width: inherit; height: inherit;
+  border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  font-size: inherit;
+  color:#fff;
+  margin:0 .2rem;
+}
+#diceBlue { background:#e91e63; } /* red/pink for player 1 */
+#diceRed  { background:#03a9f4; } /* blue for player 2 */
+
+/* ==== Ladder / Snake visuals ==== */
+#visualOverlay {
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  z-index:1;
+}
+.snake-line {
+  stroke: #e74c3c;
+  stroke-width: 8;
+  fill: none;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(231, 76, 60, 0.6));
+}
+.snake-head {
+  fill: #c0392b;
+  filter: drop-shadow(0 0 6px rgba(192, 57, 43, 0.8));
+}
+.snake-eye {
+  fill: #fff;
+}
+.ladder-line {
+  stroke: #27ae60;
+  stroke-width: 6;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(39, 174, 96, 0.6));
+}
+.ladder-rung {
+  stroke: #2ecc71;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+
+/* ==== Win modal ==== */
+#winModal {
+  position:fixed; inset:0;
+  background:radial-gradient(circle at center, rgba(0,0,0,.9) 0%, rgba(0,0,0,.95) 100%);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  color:#fff;
+  font-size:2.5rem;
+  visibility:hidden;
+  z-index:100;
+  animation: modalBgPulse 2s infinite;
+}
+@keyframes modalBgPulse {
+  0%,100% { background: radial-gradient(circle at center, rgba(0,0,0,.9) 0%, rgba(0,0,0,.95) 100%); }
+  50% { background: radial-gradient(circle at center, rgba(46,204,113,.2) 0%, rgba(0,0,0,.95) 100%); }
+}
+#winModal span {
+  animation: winnerTextGlow 1.5s infinite alternate;
+  text-shadow: 0 0 20px #f1c40f, 0 0 40px #e67e22;
+}
+@keyframes winnerTextGlow {
+  from { text-shadow: 0 0 20px #f1c40f, 0 0 40px #e67e22; transform: scale(1); }
+  to { text-shadow: 0 0 30px #e74c3c, 0 0 60px #f1c40f; transform: scale(1.05); }
+}
+#winModal button {
+  margin-top:1.5rem; padding:1rem 2rem; font-size:1.2rem;
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  border:none; border-radius:8px;
+  color:#fff; cursor:pointer;
+  box-shadow: 0 4px 15px rgba(39,174,96,.4);
+  transition: transform .2s, box-shadow .2s;
+}
+#winModal button:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 25px rgba(39,174,96,.6);
+}
+
+/* ==== About Section ==== */
+#aboutSection {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  background: transparent;
+  padding: 4px;
+  z-index: 50;
+}
+#aboutSection p {
+  margin: 0;
+  color: rgba(236, 240, 241, 0.5);
+  font-size: 0.6rem;
+  line-height: 1.3;
+}
+#aboutSection a {
+  color: rgba(52, 152, 219, 0.6);
+  text-decoration: none;
+  font-size: 0.55rem;
+}
+#aboutSection a:hover {
+  color: rgba(231, 76, 60, 0.7);
+}
+
+/* ==== Confetti (simple) ==== */
+#confettiCanvas {
+  position:fixed; inset:0; pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<h1>Snake & Ladder</h1>
+
+<div id="game">
+  <svg id="visualOverlay"></svg>
+</div>
+
+<button id="diceBtn">Roll Dice</button>
+<div id="dice">
+  <div id="diceBlue" class="dice-player" style="display:none;">⚀</div>
+  <div id="diceRed" class="dice-player">⚀</div>
+</div>
+
+<div id="diceResult" style="margin-top:.5rem; font-size:1.2rem; opacity:0; transition:opacity .3s; color:#ecf0f1;"></div>
+
+<div id="aboutSection">
+  <p>hello! i am sahil badarkhe created this amazing game using claude <a href="mailto:sahilbadarkhe@gmail.com">sahilbadarkhe@gmail.com</a></p>
+</div>
+
+<div id="winModal">
+  🎉 <span id="winner"></span> wins! 🎉
+  <br><button onclick="location.reload()">Play Again</button>
+</div>
+
+<audio id="diceSound" preload="auto"></audio>
+<audio id="moveSound" preload="auto"></audio>
+<audio id="snakeSound" preload="auto"></audio>
+<audio id="ladderSound" preload="auto"></audio>
+<audio id="winSound" preload="auto"></audio>
+
+<script>
+/* ==== Constants & helpers ==== */
+const BOARD_SIZE = 10;               // 10×10 = 100 cells
+const CELL_COUNT = BOARD_SIZE * BOARD_SIZE;
+const CELL_SIZE = 100 / BOARD_SIZE;   // percent for responsive calc
+const SNAKES = {  99:78,  95:75,  92:88,  89:68,  74:53,  64:60,
+                 62:19,  49:11,  46:25,  16:6 };
+const LADDERS = { 2:38, 7:14, 8:31, 15:26, 21:42, 28:84,
+                 36:44, 51:67, 71:91, 78:98, 87:94 };
+
+/* ==== Sound Effects using Web Audio API ==== */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  switch(type) {
+    case 'dice':
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.15);
+      break;
+
+    case 'move':
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.1);
+      break;
+
+    case 'snake':
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.5);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.6);
+      // Add slide whistle effect
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(800, audioCtx.currentTime);
+      osc2.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.5);
+      gain2.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+      osc2.start();
+      osc2.stop(audioCtx.currentTime + 0.5);
+      break;
+
+    case 'ladder':
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.4);
+      break;
+
+    case 'win':
+      // Amazing victory fanfare with multiple layers
+      // Main melody - rising triumphant notes
+      const melody = [523, 659, 784, 880, 1047, 1319, 1568];
+      melody.forEach((freq, i) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        o.type = i < 4 ? 'sine' : 'triangle';
+        o.frequency.setValueAtTime(freq, audioCtx.currentTime + i * 0.12);
+        g.gain.setValueAtTime(0.25, audioCtx.currentTime + i * 0.12);
+        g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + i * 0.12 + 0.4);
+        o.start(audioCtx.currentTime + i * 0.12);
+        o.stop(audioCtx.currentTime + i * 0.12 + 0.5);
+      });
+
+      // Harmonic accompaniment
+      const harmonics = [262, 330, 392, 440];
+      harmonics.forEach((freq, i) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        o.type = 'sine';
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.1, audioCtx.currentTime + 0.5 + i * 0.08);
+        g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5 + i * 0.08 + 0.3);
+        o.start(audioCtx.currentTime + 0.5 + i * 0.08);
+        o.stop(audioCtx.currentTime + 0.5 + i * 0.08 + 0.4);
+      });
+
+      // Drum-like accent
+      for (let d = 0; d < 3; d++) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime + d * 0.2);
+        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + d * 0.2 + 0.1);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime + d * 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d * 0.2 + 0.15);
+        osc.start(audioCtx.currentTime + d * 0.2);
+        osc.stop(audioCtx.currentTime + d * 0.2 + 0.15);
+      }
+      break;
+  }
+}
+
+/* ==== Draw snakes and ladders visuals ==== */
+function drawSnakesAndLadders() {
+  const svg = document.getElementById('visualOverlay');
+  const boardRect = document.getElementById('game').getBoundingClientRect();
+  svg.setAttribute('width', boardRect.width);
+  svg.setAttribute('height', boardRect.height);
+  svg.innerHTML = '';
+
+  // Draw snakes
+  for (const [start, end] of Object.entries(SNAKES)) {
+    const startPos = cellCoords(parseInt(start));
+    const endPos = cellCoords(end);
+
+    // Create curved snake path
+    const midX = (startPos.x + endPos.x) / 2;
+    const midY = (startPos.y + endPos.y) / 2;
+    const offset = (startPos.x > endPos.x) ? 20 : -20;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${startPos.x} ${startPos.y} Q ${midX + offset} ${midY} ${endPos.x} ${endPos.y}`);
+    path.setAttribute('class', 'snake-line');
+    svg.appendChild(path);
+
+    // Snake head at start
+    const head = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    head.setAttribute('cx', startPos.x);
+    head.setAttribute('cy', startPos.y);
+    head.setAttribute('r', 8);
+    head.setAttribute('class', 'snake-head');
+    svg.appendChild(head);
+
+    // Eyes
+    const eye1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    eye1.setAttribute('cx', startPos.x - 3);
+    eye1.setAttribute('cy', startPos.y - 3);
+    eye1.setAttribute('r', 2);
+    eye1.setAttribute('class', 'snake-eye');
+    svg.appendChild(eye1);
+    const eye2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    eye2.setAttribute('cx', startPos.x + 3);
+    eye2.setAttribute('cy', startPos.y - 3);
+    eye2.setAttribute('r', 2);
+    eye2.setAttribute('class', 'snake-eye');
+    svg.appendChild(eye2);
+  }
+
+  // Draw ladders
+  for (const [start, end] of Object.entries(LADDERS)) {
+    const startPos = cellCoords(parseInt(start));
+    const endPos = cellCoords(end);
+
+    // Create ladder with multiple rungs
+    const numRungs = 4;
+    for (let i = 0; i <= numRungs; i++) {
+      const t = i / numRungs;
+      const x = startPos.x + (endPos.x - startPos.x) * t;
+      const y = startPos.y + (endPos.y - startPos.y) * t;
+
+      if (i === 0 || i === numRungs) {
+        // Side rails
+        const rung = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        rung.setAttribute('x1', startPos.x);
+        rung.setAttribute('y1', startPos.y);
+        rung.setAttribute('x2', endPos.x);
+        rung.setAttribute('y2', endPos.y);
+        rung.setAttribute('class', 'ladder-line');
+        rung.style.opacity = 0.3;
+        svg.appendChild(rung);
+      } else {
+        // Rungs
+        const rung = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        rung.setAttribute('x1', startPos.x + (endPos.x - startPos.x) * t);
+        rung.setAttribute('y1', startPos.y + (endPos.y - startPos.y) * t - 6);
+        rung.setAttribute('x2', startPos.x + (endPos.x - startPos.x) * t);
+        rung.setAttribute('y2', startPos.y + (endPos.y - startPos.y) * t + 6);
+        rung.setAttribute('class', 'ladder-rung');
+        svg.appendChild(rung);
+      }
+    }
+  }
+}
+
+/* ==== Build board ==== */
+const gameEl = document.getElementById('game');
+// Grid fills top-to-bottom, left-to-right
+// We want: row 0 (top) = 91-100, row 9 (bottom) = 1-10, both left→right
+// Row index in grid = 9 - logicalRow
+// Grid row 0 uses logical row 9 → even → left→right (no reverse)
+// Grid row 1 uses logical row 8 → odd → reverse (80-71)
+// Grid row 2 uses logical row 7 → even → left→right (81-90)
+// ...
+// Grid row 9 uses logical row 0 → even → left→right (1-10)
+const displayOrder = [];
+for (let row = BOARD_SIZE - 1; row >= 0; row--) {
+  const base = row * BOARD_SIZE;
+  const numbers = [];
+  for (let n = 1; n <= BOARD_SIZE; n++) {
+    numbers.push(base + n);
+  }
+  // logical row 9,7,5,3,1 are odd → reverse
+  // logical row 8,6,4,2,0 are even → keep order
+  if (row % 2 === 1) {
+    numbers.reverse();
+  }
+  displayOrder.push(...numbers);
+}
+// Now displayOrder = [grid row 0, grid row 1, ..., grid row 9]
+// This matches cellCoords: row 0→col0 is cell 1 (bottom-left), row 9→col9 is cell 100 (top-right)
+for (const i of displayOrder) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.dataset.index = i;
+  cell.textContent = i;
+  gameEl.appendChild(cell);
+}
+
+
+
+/* ==== Tokens ==== */
+const token1 = document.createElement('div');
+token1.className = 'token player1';
+const token2 = document.createElement('div');
+token2.className = 'token player2';
+gameEl.appendChild(token1);
+gameEl.appendChild(token2);
+
+/* ==== Game state ==== */
+let positions = [1, 1];           // player positions (start at 1)
+let currentPlayer = 0;            // 0 => player1, 1 => player2
+let animating = false;
+
+/* ==== Utility: get cell centre in px (relative to board) ==== */
+function cellCoords(cellIdx) {
+  // cell 1 at bottom-left, cell 100 at top-right
+  // DisplayOrder: logical row 0→1-10, row 1→20-11, row 2→21-30, etc.
+  // Grid: row 0 (top) shows logical row 9, row 9 (bottom) shows logical row 0
+  const logicalRow = Math.floor((cellIdx - 1) / BOARD_SIZE);
+  const colInRow = (cellIdx - 1) % BOARD_SIZE;
+  const gridRow = BOARD_SIZE - 1 - logicalRow;
+  // Logical row even (0,2,4...) not reversed → use colInRow
+  // Logical row odd (1,3,5...) reversed → use reversed col
+  const col = (logicalRow % 2 === 0) ? colInRow : BOARD_SIZE - 1 - colInRow;
+
+  const y = gridRow * CELL_SIZE + CELL_SIZE / 2;
+  const x = col * CELL_SIZE + CELL_SIZE / 2;
+  const boardRect = gameEl.getBoundingClientRect();
+  return { x: x * boardRect.width / 100, y: y * boardRect.height / 100 };
+}
+
+/* ==== Sleep helper ==== */
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms));}
+
+/* ==== Dice animation ==== */
+async function rollDiceAnimation() {
+  const diceEl = document.getElementById('dice');
+  const diceBlue = document.getElementById('diceBlue');
+  const diceRed  = document.getElementById('diceRed');
+  // show only the dice for the current player
+  const showFor = (player)=>{
+    if(player===0){ diceBlue.style.display='flex'; diceRed.style.display='none'; }
+    else { diceBlue.style.display='none'; diceRed.style.display='flex'; }
+  };
+  showFor(currentPlayer);
+  diceEl.style.visibility = 'visible';
+  const faces = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+  // quick spin – update the visible dice each frame
+  for(let i=0;i<12;i++){
+    const face = faces[Math.floor(Math.random()*6)];
+    if(currentPlayer===0) diceBlue.textContent = face; else diceRed.textContent = face;
+    await sleep(80);
+  }
+  const result = Math.ceil(Math.random()*6);
+  if(currentPlayer===0) diceBlue.textContent = faces[result-1]; else diceRed.textContent = faces[result-1];
+	playSound('dice');
+	// show numeric result below the dice
+	const resultDiv = document.getElementById('diceResult');
+	resultDiv.textContent = `You rolled ${result}`;
+	resultDiv.style.opacity = '1';
+  await sleep(300);
+  diceEl.style.visibility = 'hidden';
+	// fade out result after a short pause
+	setTimeout(()=>{ document.getElementById('diceResult').style.opacity = '0'; }, 800);
+  return result;
+}
+
+/* ==== Highlight current cell ==== */
+function highlightCell(idx){
+  document.querySelectorAll('.cell').forEach(c=>c.classList.remove('active'));
+  const cell = document.querySelector(`.cell[data-index="${idx}"]`);
+  if(cell) cell.classList.add('active');
+}
+
+/* ==== Move a token step‑by‑step ==== */
+async function movePlayerAnimated(playerIdx, steps) {
+  const token = playerIdx===0?token1:token2;
+  const startPos = positions[playerIdx];
+  let target = Math.min(startPos + steps, CELL_COUNT);
+  // Build the path (including possible snake/ladder at the end)
+  const path = [];
+  for(let p=startPos+1; p<=target; p++) path.push(p);
+  // Animate each step
+  for(const cellIdx of path){
+    highlightCell(cellIdx);
+    await animateStep(token, cellIdx);
+    playSound('move');
+    await sleep(120);   // small pause between cells
+  }
+  // Check for snake or ladder after landing
+  if (SNAKES[target]) {
+    await animateSnake(token, target, SNAKES[target]);
+    target = SNAKES[target];
+  } else if (LADDERS[target]) {
+    await animateLadder(token, target, LADDERS[target]);
+    target = LADDERS[target];
+  }
+  positions[playerIdx] = target;
+  highlightCell(target);
+}
+
+/* ==== Single step animation (bounce/pop) ==== */
+function animateStep(token, cellIdx){
+  return new Promise(resolve=>{
+    const {x,y}=cellCoords(cellIdx);
+    const half = token.offsetWidth/2;
+    token.style.transition = 'transform .35s cubic-bezier(.2, .8, .2, 1)';
+    token.style.transform = `translate(${x - half}px, ${y - half}px) scale(1.2)`;
+    setTimeout(()=>{
+      token.style.transform = `translate(${x - half}px, ${y - half}px) scale(1)`;
+      setTimeout(resolve, 200);
+    }, 200);
+  });
+}
+
+/* ==== Snake animation (slide down + shake) ==== */
+function animateSnake(token, from, to){
+  return new Promise(resolve=>{
+    const {x:x2,y:y2}=cellCoords(to);
+    const half = token.offsetWidth/2;
+    // play slide down sound
+    playSound('snake');
+    // highlight snake on start cell
+    const startCell = document.querySelector(`.cell[data-index="${from}"]`);
+    const snakeGlow = document.createElement('div');
+    snakeGlow.className = 'snake snakeActive';
+    startCell.appendChild(snakeGlow);
+    token.style.transition = 'transform .6s ease-in';
+    // slide down with bounce and shake
+    token.animate([
+      { transform:`translate(${x2 - half}px, ${y2 - half - 20}px) rotate(0deg)`},
+      { transform:`translate(${x2 - half}px, ${y2 - half + 10}px) rotate(-10deg)`},
+      { transform:`translate(${x2 - half}px, ${y2 - half + 10}px) rotate(10deg)`},
+      { transform:`translate(${x2 - half}px, ${y2 - half}px) rotate(0deg)`}
+    ],{duration:600, iterations:2});
+    // ensure final position and cleanup
+    setTimeout(()=>{
+      token.style.transform = `translate(${x2 - half}px, ${y2 - half}px) scale(1)`;
+      snakeGlow.remove();
+      resolve();
+    },650);
+  });
+}
+
+/* ==== Ladder animation (climb + glow) ==== */
+function animateLadder(token, from, to){
+  return new Promise(resolve=>{
+    const {x:x2,y:y2}=cellCoords(to);
+    const half = token.offsetWidth/2;
+    playSound('ladder');
+    token.style.transition = 'transform .6s ease-out';
+    token.style.transform = `translate(${x2 - half}px, ${y2 - half}px) scale(1)`;
+    const glow = document.createElement('div');
+    glow.className = 'ladder';
+    const startCell = document.querySelector(`.cell[data-index="${from}"]`);
+    startCell.appendChild(glow);
+    setTimeout(()=>{ glow.remove(); resolve(); },800);
+  });
+}
+
+/* ==== Win animation (confetti + bounce) ==== */
+function checkWinAnimation(playerIdx){
+  if (positions[playerIdx]===CELL_COUNT){
+    playSound('win');
+    launchConfetti();
+    const token = playerIdx===0?token1:token2;
+
+    // Amazing victory spin animation
+    const {x, y} = cellCoords(CELL_COUNT);
+    const half = token.offsetWidth/2;
+    token.style.transition = 'none';
+    token.style.transform = `translate(${x - half}px, ${y - half}px)`;
+
+    // Multiple spin and scale animation
+    token.animate([
+      { transform: `translate(${x - half}px, ${y - half}px) scale(1) rotate(0deg)` },
+      { transform: `translate(${x - half}px, ${y - half}px) scale(1.5) rotate(180deg)` },
+      { transform: `translate(${x - half}px, ${y - half}px) scale(1.2) rotate(360deg)` },
+      { transform: `translate(${x - half}px, ${y - half}px) scale(1.6) rotate(540deg)` },
+      { transform: `translate(${x - half}px, ${y - half}px) scale(1) rotate(720deg)` }
+    ], {duration: 1500, easing: 'cubic-bezier(0.68, -0.55, 0.265, 1.55)'});
+
+    // Pulsing glow effect
+    const glowInterval = setInterval(() => {
+      token.style.boxShadow = token.style.boxShadow === '0 0 20px 8px #f1c40f' ?
+        '0 0 30px 12px #e74c3c' : '0 0 20px 8px #f1c40f';
+    }, 200);
+
+    // Celebration particles
+    createCelebrationParticles(x, y, playerIdx === 0 ? '#e91e63' : '#03a9f4');
+
+    setTimeout(()=>{
+      clearInterval(glowInterval);
+      token.style.boxShadow = '0 0 4px rgba(0,0,0,0.5)';
+      document.getElementById('winner').textContent = playerIdx===0?'Player 1':'Player 2';
+      document.getElementById('winModal').style.visibility='visible';
+    },1600);
+  }
+}
+
+/* ==== Celebration particles ==== */
+function createCelebrationParticles(x, y, color) {
+  const overlay = document.getElementById('visualOverlay');
+  for (let i = 0; i < 20; i++) {
+    const particle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    particle.setAttribute('cx', x);
+    particle.setAttribute('cy', y);
+    particle.setAttribute('r', 4);
+    particle.setAttribute('fill', color);
+    particle.style.opacity = 1;
+    overlay.appendChild(particle);
+
+    const angle = (Math.PI * 2 * i) / 20;
+    const distance = 50 + Math.random() * 80;
+    const targetX = x + Math.cos(angle) * distance;
+    const targetY = y + Math.sin(angle) * distance;
+
+    particle.animate([
+      { cx: x, cy: y, r: 4, opacity: 1 },
+      { cx: targetX, cy: targetY - 30, r: 2, opacity: 0 }
+    ], {duration: 800 + Math.random() * 400, easing: 'ease-out'});
+
+    setTimeout(() => particle.remove(), 1200);
+  }
+}
+
+/* ==== Simple confetti (canvas) ==== */
+function launchConfetti(){
+  const canvas=document.getElementById('confettiCanvas');
+  const ctx=canvas.getContext('2d');
+  const w=canvas.width=window.innerWidth;
+  const h=canvas.height=window.innerHeight;
+  const particles=[];
+  for(let i=0;i<150;i++){
+    particles.push({
+      x: Math.random()*w,
+      y: Math.random()*-h,
+      r: Math.random()*4+2,
+      d: Math.random()*150+100,
+      color: `hsl(${Math.random()*360},80%,60%)`,
+      velX: Math.random()*2-1,
+      velY: Math.random()*3+2
+    });
+  }
+  function render(){
+    ctx.clearRect(0,0,w,h);
+    particles.forEach(p=>{
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle=p.color;
+      ctx.fill();
+      p.x+=p.velX; p.y+=p.velY;
+      if(p.y>h){ p.x=Math.random()*w; p.y=-p.r; }
+    });
+    if(particles[0].y< h) requestAnimationFrame(render);
+  }
+  render();
+}
+
+/* ==== Main dice click handler ==== */
+document.getElementById('diceBtn').addEventListener('click', async ()=>{
+  if (animating) return;
+  // Resume audio context if suspended
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  animating = true;
+  document.getElementById('diceBtn').disabled = true;
+  const roll = await rollDiceAnimation();
+  await movePlayerAnimated(currentPlayer, roll);
+  checkWinAnimation(currentPlayer);
+  if (positions[currentPlayer] !== CELL_COUNT){
+    currentPlayer = 1 - currentPlayer;
+  }
+  document.getElementById('diceBtn').disabled = false;
+  animating = false;
+});
+
+/* ==== Initialize token positions ==== */
+function initTokens(){
+  const size = token1.offsetWidth; // same for both tokens
+  const half = size/2;
+  token1.style.transform = `translate(${cellCoords(1).x - half}px, ${cellCoords(1).y - half}px)`;
+  token2.style.transform = `translate(${cellCoords(1).x - half}px, ${cellCoords(1).y - half}px)`;
+}
+initTokens();
+
+// Draw snakes and ladders visuals
+drawSnakesAndLadders();
+
+// Redraw on window resize
+window.addEventListener('resize', () => {
+  drawSnakesAndLadders();
+  initTokens();
+});
+</script>
+</body>
+</html>

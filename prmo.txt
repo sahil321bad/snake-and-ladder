@@ -1,0 +1,2 @@
+ animation goes from 1 to 100 and players goes from 100 to 1 what a fuck fix it now properly like priviously
+   animation and players goes from 1 to 100 at same path 1 to 100

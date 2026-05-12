@@ -1,0 +1,173 @@
+/* ---- Global Styles ---- */
+:root {
+  --bg-light: #f5f7fa;
+  --bg-dark: #212121;
+  --primary: #1976d2;
+  --secondary: #e53935;
+  --accent: #ffb300;
+  --text-light: #212121;
+  --text-dark: #fafafa;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg-light);
+  color: var(--text-light);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+body.dark {
+  background: var(--bg-dark);
+  color: var(--text-dark);
+}
+
+/* ---- Header ---- */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: linear-gradient(45deg, var(--primary), var(--secondary));
+  color: #fff;
+}
+.header h1 { margin: 0; font-size: 1.8rem; }
+.header-controls button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.4rem;
+  cursor: pointer;
+  margin-left: .5rem;
+}
+.header-controls button:hover { opacity: .8; }
+
+/* ---- Layout ---- */
+.main {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  padding: 1rem;
+  gap: 1rem;
+  justify-content: center;
+  align-items: flex-start; /* keep board top‑aligned with sidebar */
+}
+.board-section { flex: 2 1 400px; }
+.sidebar { flex: 1 1 260px; display: flex; flex-direction: column; gap: .8rem; }
+
+/* ---- Board ---- */
+.board {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 1px;
+  background: #444;
+  position: relative;
+  width: 100%;
+  max-width: 800px;       /* larger desktop board */
+  aspect-ratio: 1;         /* keep cells square */
+  border: 4px solid #333;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cell {
+  background: linear-gradient(135deg, #fdd835, #ffb300);
+  position: relative;
+  width: 100%;
+  padding-bottom: 100%; /* square */
+}
+.cell:nth-child(even) { background: linear-gradient(135deg, #90caf9, #42a5f5); }
+.cell-number {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  font-size: .65rem;
+  color: rgba(0,0,0,.6);
+
+/* ---- Cell highlight during movement ---- */
+.cell.highlight {
+  background: rgba(255,255,0,0.3) !important;
+}
+
+/* ---- Token base style ---- */
+.token {
+  position: absolute;
+  width: 30%;               /* smaller, game‑piece size */
+  height: 30%;
+  border-radius: 50%;
+  top: 35%; left: 35%;
+  transform: translate(0,0);
+  transition: transform .4s ease;
+  z-index: 10;               /* above board graphics */
+  box-shadow: 0 0 4px rgba(0,0,0,.4);
+}
+.token.red { background: var(--secondary); }
+.token.blue { background: var(--primary); }
+/* highlight active move */
+.token.active-move {
+  outline: 3px solid red;
+  outline-offset: -3px;
+}
+
+/* ---- Snakes & Ladders graphics ---- */
+.snake, .ladder {
+  position: absolute;
+  width: 100%;
+  height: 20px;               /* thin line */
+  pointer-events: none;
+  z-index: 5;                /* below tokens */
+}
+
+
+/* ---- Sidebar ---- */
+.players-info .player {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.color-indicator {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+.turn-indicator {
+  font-weight: bold;
+  padding: .4rem;
+  background: var(--accent);
+  border-radius: 4px;
+  text-align: center;
+}
+.action-btn {
+  padding: .6rem 1rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+  transition: background .2s;
+}
+.action-btn:hover { background: #1565c0; }
+
+/* ---- Dice Animation ---- */
+.dice-anim {
+  width: 50px;
+  height: 50px;
+  margin: .5rem auto;
+  border: 2px solid currentColor;
+  border-radius: 8px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+}
+.dice-anim.show { display: flex; animation: spin 0.5s linear; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ---- Responsive ---- */
+@media (max-width: 600px) {
+  .main { flex-direction: column; align-items: center; }
+  .board-section, .sidebar { flex-basis: 100%; }
+  .action-btn { width: 100%; }
+}
