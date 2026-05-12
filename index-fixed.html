@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Snake & Ladder - Online</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: #eee; padding: 20px; }
+h1 { color: #e94560; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); margin-bottom: 20px; }
+#loginScreen, #gameScreen { display: none; width: 100%; max-width: 500px; }
+#loginScreen.active, #gameScreen.active { display: flex; flex-direction: column; align-items: center; }
+#loginScreen { background: rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; backdrop-filter: blur(10px); }
+#loginScreen h2 { color: #e94560; margin-bottom: 30px; font-size: 2rem; }
+#loginScreen input { padding: 15px 20px; font-size: 1rem; border-radius: 10px; border: 2px solid #533483; background: rgba(0,0,0,0.3); color: #fff; width: 100%; margin-bottom: 15px; text-align: center; }
+#loginScreen input::placeholder { color: rgba(255,255,255,0.5); }
+#loginScreen button { padding: 15px 40px; font-size: 1rem; cursor: pointer; background: linear-gradient(135deg, #e94560, #533483); color: #fff; border: none; border-radius: 25px; margin: 5px; transition: transform 0.2s, box-shadow 0.2s; }
+#loginScreen button:hover { transform: scale(1.05); box-shadow: 0 5px 20px rgba(233,69,96,0.4); }
+#errorMsg { color: #ff6b6b; margin-top: 15px; }
+#gameInfo { display: flex; justify-content: space-between; width: 100%; margin: 15px 0; }
+.player-info { text-align: center; padding: 15px 25px; border-radius: 15px; background: rgba(0,0,0,0.3); min-width: 140px; transition: all 0.3s; }
+.player-info.active { background: linear-gradient(135deg, rgba(233,69,96,0.3), rgba(83,52,131,0.3)); border: 2px solid #e94560; transform: scale(1.05); }
+.p1 { color: #e94560; } .p2 { color: #00d9ff; }
+.player-info span { display: block; font-size: 1.5rem; font-weight: bold; margin-bottom: 5px; }
+.player-info small { color: rgba(255,255,255,0.7); }
+#roomCode { position: fixed; top: 15px; right: 15px; background: rgba(233,69,96,0.2); padding: 10px 20px; border-radius: 20px; font-weight: bold; }
+#game { display: grid; grid-template-columns: repeat(10, 1fr); width: 100%; max-width: 450px; aspect-ratio: 1; gap: 2px; background: #533483; border-radius: 10px; overflow: hidden; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+.cell { background: linear-gradient(135deg, #1a1a2e, #16213e); color: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: bold; }
+.cell:nth-child(odd) { background: linear-gradient(135deg, #16213e, #1a1a2e); }
+.cell.active { background: linear-gradient(135deg, #e94560, #533483); color: #fff; box-shadow: inset 0 0 10px rgba(255,255,255,0.3); }
+.cell.snake-hit { animation: snakeFlash 0.5s; }
+.cell.ladder-climb { animation: ladderFlash 0.5s; }
+@keyframes snakeFlash { 0%,100% { background: #ff0000; } 50% { background: #e94560; } }
+@keyframes ladderFlash { 0%,100% { background: #00ff00; } 50% { background: #00d9ff; } }
+.token { width: 70%; height: 70%; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 3px 10px rgba(0,0,0,0.5); position: absolute; transition: all 0.15s ease-out; z-index: 10; }
+.player1 { background: linear-gradient(135deg, #e94560, #ff6b6b); }
+.player2 { background: linear-gradient(135deg, #00d9ff, #00ffff); }
+.player1.glow { animation: glow1 1s infinite; }
+.player2.glow { animation: glow2 1s infinite; }
+@keyframes glow1 { 0%,100% { box-shadow: 0 0 10px #e94560; } 50% { box-shadow: 0 0 25px #e94560, 0 0 40px #e94560; } }
+@keyframes glow2 { 0%,100% { box-shadow: 0 0 10px #00d9ff; } 50% { box-shadow: 0 0 25px #00d9ff, 0 0 40px #00d9ff; } }
+#diceBtn { margin-top: 20px; padding: 15px 50px; font-size: 1.2rem; cursor: pointer; background: linear-gradient(135deg, #e94560, #533483); border: none; border-radius: 30px; color: #fff; font-weight: bold; transition: transform 0.2s; }
+#diceBtn:hover:not(:disabled) { transform: scale(1.05); box-shadow: 0 5px 20px rgba(233,69,96,0.4); }
+#diceBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+#diceArea { display: flex; align-items: center; gap: 20px; margin-top: 15px; }
+#diceDisplay { width: 60px; height: 60px; background: linear-gradient(135deg, #533483, #e94560); border-radius: 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+#diceResult { font-size: 1.2rem; color: #e94560; font-weight: bold; }
+#visualOverlay { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.snake-line { stroke: #e94560; stroke-width: 4; fill: none; stroke-linecap: round; opacity: 0.7; }
+.snake-head { fill: #ff6b6b; }
+.ladder-line { stroke: #00d9ff; stroke-width: 3; stroke-linecap: round; opacity: 0.6; }
+.ladder-rung { stroke: #00ffff; stroke-width: 2; stroke-linecap: round; }
+#winModal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; animation: fadeIn 0.5s; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+#winModal h2 { font-size: 3rem; color: #e94560; text-shadow: 0 0 30px #e94560; margin-bottom: 20px; }
+#winModal button { padding: 15px 40px; font-size: 1.2rem; background: linear-gradient(135deg, #00d9ff, #533483); border: none; border-radius: 25px; color: #fff; cursor: pointer; }
+#about { position: fixed; bottom: 10px; left: 10px; font-size: 0.7rem; color: rgba(255,255,255,0.4); }
+#about a { color: rgba(0,217,255,0.6); text-decoration: none; }
+</style>
+</head>
+<body>
+<div id="loginScreen" class="active">
+<h1>🐍 Snakes & Ladders 🪜</h1>
+<input type="text" id="roomInput" placeholder="Enter Room Code">
+<br>
+<button onclick="createRoom()">Create Room</button>
+<button onclick="joinRoom()">Join Room</button>
+<p id="errorMsg"></p>
+</div>
+<div id="gameScreen">
+<div id="roomCode"></div>
+<h1>🐍 Snakes & Ladders 🪜</h1>
+<div id="gameInfo">
+<div id="p1Info" class="player-info p1"><span>Player 1</span><small id="p1Pos">Pos: 1</small></div>
+<div id="p2Info" class="player-info p2"><span>Player 2</span><small id="p2Pos">Pos: 1</small></div>
+</div>
+<div id="game"><svg id="visualOverlay"></svg></div>
+<button id="diceBtn" onclick="rollDice()" disabled>🎲 Roll Dice</button>
+<div id="diceArea">
+<div id="diceDisplay">🎲</div>
+<div id="diceResult"></div>
+</div>
+</div>
+<div id="winModal"><h2>🎉 <span id="winner"></span> Wins! 🎉</h2><button onclick="resetGame()">Play Again</button></div>
+<div id="about">by sahil badarkhe | <a href="mailto:sahilbadarkhe@gmail.com">sahilbadarkhe@gmail.com</a></div>
+<script>
+const socket = io();
+const BOARD_SIZE = 10, CELL_COUNT = 100;
+const SNAKES = {99:78,95:75,92:88,89:68,74:53,64:60,62:19,49:11,46:25,16:6};
+const LADDERS = {2:38,7:14,8:31,15:26,21:42,28:84,36:44,51:67,71:91,78:98,87:94};
+let myPlayerNum = null, gameId = null, positions = [1, 1], currentPlayer = 0, animating = false;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+  const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  switch(type) {
+    case 'dice': osc.type = 'sine'; osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1000, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); osc.start(); osc.stop(audioCtx.currentTime + 0.15); break;
+    case 'move': osc.type = 'triangle'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(500, audioCtx.currentTime + 0.05); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08); osc.start(); osc.stop(audioCtx.currentTime + 0.08); break;
+    case 'snake': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.4); gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); osc.start(); osc.stop(audioCtx.currentTime + 0.5); break;
+    case 'ladder': osc.type = 'sine'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3); gain.gain.setValueAtTime(0.25, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4); osc.start(); osc.stop(audioCtx.currentTime + 0.4); break;
+    case 'win': [523,659,784,1047,1319,1568].forEach((f,i) => { const o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.connect(g);g.connect(audioCtx.destination);o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0.2,audioCtx.currentTime+i*0.1);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+i*0.1+0.3);o.start(audioCtx.currentTime+i*0.1);o.stop(audioCtx.currentTime+i*0.1+0.3); }); break;
+  }
+}
+
+function generateCode() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
+function createRoom() { joinGame(generateCode()); }
+function joinRoom() { const c = document.getElementById('roomInput').value.trim().toUpperCase(); if(!c) { document.getElementById('errorMsg').textContent = 'Enter room code!'; return; } joinGame(c); }
+function joinGame(code) { gameId = code; socket.emit('joinGame', code); document.getElementById('loginScreen').classList.remove('active'); }
+
+socket.on('playerAssigned', (d) => { myPlayerNum = d.playerNum; document.getElementById('gameScreen').classList.add('active'); document.getElementById('roomCode').textContent = 'Room: ' + gameId; initBoard(); });
+socket.on('roomFull', () => { document.getElementById('errorMsg').textContent = 'Room full!'; document.getElementById('loginScreen').classList.add('active'); document.getElementById('gameScreen').classList.remove('active'); });
+socket.on('gameState', (g) => { positions = [...g.positions]; currentPlayer = g.currentPlayer; updateUI(); updateTokenPositions(); });
+socket.on('playerMoved', (d) => animateMove(d));
+socket.on('gameReset', () => { positions = [1, 1]; currentPlayer = 0; document.getElementById('winModal').style.display = 'none'; updateUI(); initTokens(); });
+
+const gameEl = document.getElementById('game');
+for (let row = 9; row >= 0; row--) {
+  const base = row * 10; let nums = [];
+  for (let n = 1; n <= 10; n++) nums.push(base + n);
+  if (row % 2 === 1) nums.reverse();
+  nums.reverse().forEach(i => { const cell = document.createElement('div'); cell.className = 'cell'; cell.dataset.index = i; cell.textContent = i; gameEl.appendChild(cell); });
+}
+
+function initBoard() {
+  const svg = document.getElementById('visualOverlay'), rect = gameEl.getBoundingClientRect();
+  svg.setAttribute('width', rect.width); svg.setAttribute('height', rect.height); svg.innerHTML = '';
+  for (const [s, e] of Object.entries(SNAKES)) { const sc = cellCoords(parseInt(s)), ec = cellCoords(e); const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', `M ${sc.x} ${sc.y} Q ${(sc.x+ec.x)/2} ${(sc.y+ec.y)/2+30} ${ec.x} ${ec.y}`); p.setAttribute('class', 'snake-line'); svg.appendChild(p); }
+  for (const [s, e] of Object.entries(LADDERS)) { const sc = cellCoords(parseInt(s)), ec = cellCoords(e); const l = document.createElementNS('http://www.w3.org/2000/svg', 'line'); l.setAttribute('x1', sc.x); l.setAttribute('y1', sc.y); l.setAttribute('x2', ec.x); l.setAttribute('y2', ec.y); l.setAttribute('class', 'ladder-line'); svg.appendChild(l); for(let i=1;i<4;i++){const t=i/4,r=document.createElementNS('http://www.w3.org/2000/svg','line');r.setAttribute('x1',sc.x+(ec.x-sc.x)*t-10);r.setAttribute('y1',sc.y+(ec.y-sc.y)*t);r.setAttribute('x2',sc.x+(ec.x-sc.x)*t+10);r.setAttribute('y2',sc.y+(ec.y-sc.y)*t);r.setAttribute('class','ladder-rung');svg.appendChild(r);} }
+}
+
+function cellCoords(idx) {
+  const row = Math.floor((idx-1)/10), colInRow = (idx-1)%10, gridRow = 9 - row, useReverse = row%2===1, col = useReverse ? 9 - colInRow : colInRow;
+  const rect = gameEl.getBoundingClientRect(), cellW = rect.width/10, cellH = rect.height/10;
+  return { x: col * cellW + cellW/2, y: gridRow * cellH + cellH/2 };
+}
+
+const token1 = document.createElement('div'); token1.className = 'token player1';
+const token2 = document.createElement('div'); token2.className = 'token player2';
+gameEl.appendChild(token1); gameEl.appendChild(token2);
+
+function updateTokenPositions() {
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+  const rect = gameEl.getBoundingClientRect(), size = Math.min(rect.width, rect.height) / 12, half = size/2;
+  const p1 = cellCoords(positions[0]), p2 = cellCoords(positions[1]);
+  token1.style.width = token2.style.width = size + 'px';
+  token1.style.height = token2.style.height = size + 'px';
+  token1.style.transform = `translate(${p1.x - half}px, ${p1.y - half}px)`;
+  token2.style.transform = `translate(${p2.x - half}px, ${p2.y - half}px)`;
+}
+function initTokens() { updateTokenPositions(); }
+
+function updateUI() {
+  document.getElementById('p1Pos').textContent = 'Pos: ' + positions[0];
+  document.getElementById('p2Pos').textContent = 'Pos: ' + positions[1];
+  document.getElementById('p1Info').classList.toggle('active', currentPlayer === 0);
+  document.getElementById('p2Info').classList.toggle('active', currentPlayer === 1);
+  token1.classList.toggle('glow', currentPlayer === 0);
+  token2.classList.toggle('glow', currentPlayer === 1);
+  document.getElementById('diceBtn').disabled = (myPlayerNum !== currentPlayer) || animating;
+}
+
+async function rollDice() {
+  if(animating || myPlayerNum !== currentPlayer) return;
+  animating = true; document.getElementById('diceBtn').disabled = true; playSound('dice');
+  const diceDisplay = document.getElementById('diceDisplay');
+  const faces = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+  for(let i=0; i<12; i++) { diceDisplay.textContent = faces[Math.floor(Math.random()*6)]; await new Promise(r => setTimeout(r, 50)); }
+  const roll = Math.ceil(Math.random() * 6);
+  diceDisplay.textContent = faces[roll - 1];
+  document.getElementById('diceResult').textContent = 'You rolled ' + roll;
+
+  const startPos = positions[myPlayerNum];
+  let target = Math.min(startPos + roll, CELL_COUNT);
+  const path = []; for(let p = startPos + 1; p <= target; p++) path.push(p);
+
+  for(const cellIdx of path) {
+    await new Promise(r => setTimeout(r, 120));
+    document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+    document.querySelector(`.cell[data-index="${cellIdx}"]`)?.classList.add('active');
+    const pos = cellCoords(cellIdx);
+    const token = myPlayerNum === 0 ? token1 : token2;
+    const rect = gameEl.getBoundingClientRect(), size = Math.min(rect.width, rect.height) / 12, half = size/2;
+    token.style.width = token.style.height = size + 'px';
+    token.style.transform = `translate(${pos.x - half}px, ${pos.y - half}px)`;
+    playSound('move');
+  }
+
+  socket.emit('rollDice', { gameId, roll, currentPlayer: myPlayerNum, target });
+  // animating stays true until server responds
+}
+
+async function animateMove(data) {
+  animating = true;
+  const { currentPlayer: mover, roll, target, finalPosition, eventType } = data;
+  document.getElementById('diceDisplay').textContent = roll;
+  document.getElementById('diceResult').textContent = `Player ${mover + 1} rolled ${roll}`;
+
+  const startPos = positions[mover];
+  const path = []; for(let p = startPos + 1; p <= target; p++) path.push(p);
+  const token = mover === 0 ? token1 : token2;
+  const rect = gameEl.getBoundingClientRect(), size = Math.min(rect.width, rect.height) / 12, half = size/2;
+  token.style.width = token.style.height = size + 'px';
+
+  for(const cellIdx of path) {
+    await new Promise(r => setTimeout(r, 120));
+    document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+    document.querySelector(`.cell[data-index="${cellIdx}"]`)?.classList.add('active');
+    const pos = cellCoords(cellIdx);
+    token.style.transform = `translate(${pos.x - half}px, ${pos.y - half}px)`;
+    playSound('move');
+  }
+
+  if(eventType === 'snake') {
+    playSound('snake');
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.add('snake-hit');
+    await new Promise(r => setTimeout(r, 500));
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.remove('snake-hit');
+    const dest = cellCoords(finalPosition);
+    token.style.transition = 'transform 0.4s ease-in';
+    token.style.transform = `translate(${dest.x - half}px, ${dest.y - half}px)`;
+    await new Promise(r => setTimeout(r, 450));
+  } else if(eventType === 'ladder') {
+    playSound('ladder');
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.add('ladder-climb');
+    await new Promise(r => setTimeout(r, 500));
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.remove('ladder-climb');
+    const dest = cellCoords(finalPosition);
+    token.style.transition = 'transform 0.4s ease-out';
+    token.style.transform = `translate(${dest.x - half}px, ${dest.y - half}px)`;
+    await new Promise(r => setTimeout(r, 450));
+  }
+
+  positions = [...positions];
+  positions[mover] = finalPosition;
+  updateTokenPositions();
+  updateUI();
+
+  if(finalPosition === CELL_COUNT) {
+    playSound('win');
+    document.getElementById('winner').textContent = 'Player ' + (mover + 1);
+    document.getElementById('winModal').style.display = 'flex';
+  }
+
+  animating = false;
+}
+
+function resetGame() { socket.emit('resetGame', gameId); }
+window.addEventListener('resize', () => { initBoard(); updateTokenPositions(); });
+initTokens();
+</script>
+</body>
+</html>

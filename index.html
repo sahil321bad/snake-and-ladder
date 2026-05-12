@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Snake & Ladder - Online Multiplayer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+/* ==== Layout ==== */
+body {
+  font-family:Arial,Helvetica,sans-serif;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  margin:0;
+  background:#2c3e50;
+  color:#eee;
+}
+#loginScreen, #gameScreen { display: none; }
+#loginScreen.active, #gameScreen.active { display: flex; flex-direction: column; align-items: center; }
+
+/* ==== Login ==== */
+#loginScreen {
+  margin-top: 2rem;
+}
+#loginScreen h2 { color: #f1c40f; margin-bottom: 1rem; }
+#loginScreen input {
+  padding: 10px; font-size: 1rem; border-radius: 5px; border: none;
+  width: 200px; text-align: center; margin: 5px;
+}
+#loginScreen button {
+  padding: 10px 20px; font-size: 1rem; cursor: pointer;
+  background: #27ae60; color: #fff; border: none; border-radius: 5px;
+  margin: 5px;
+}
+#loginScreen button:hover { background: #2ecc71; }
+#errorMsg { color: #e74c3c; margin-top: 10px; }
+
+/* ==== Game Info ==== */
+#gameInfo {
+  display: flex; justify-content: space-between; width: 100%; max-width: 600px;
+  margin: 1rem 0; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px;
+}
+.player-info { text-align: center; padding: 10px; border-radius: 5px; min-width: 120px; }
+.player-info.active { background: rgba(241, 196, 15, 0.3); border: 2px solid #f1c40f; }
+.p1 { color: #e91e63; }
+.p2 { color: #03a9f4; }
+#roomCode { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; }
+
+/* ==== Board ==== */
+#game {
+  display:grid;
+  grid-template-columns: repeat(10, 1fr);
+  width: min(90vw, 500px);
+  aspect-ratio: 1;
+  gap:1px;
+  background:#34495e;
+  margin-top:1rem;
+  position:relative;
+}
+.cell {
+  background:#2c3e50;
+  color:#ecf0f1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:0.8rem;
+  position:relative;
+}
+.cell:nth-child(odd) { background:#34495e; }
+.cell.active { background:#1abc9c; box-shadow:0 0 8px 2px #f1c40f inset; }
+.cell.snakeHit { animation: snakeHitAnim 0.5s; }
+.cell.ladderClimb { animation: ladderAnim 0.5s; }
+@keyframes snakeHitAnim { 0%,100% { background: #c0392b; } 50% { background: #e74c3c; } }
+@keyframes ladderAnim { 0%,100% { background: #27ae60; } 50% { background: #2ecc71; } }
+
+/* ==== Tokens ==== */
+.token {
+  width: clamp(20px, 2.5vw, 28px);
+  height: clamp(20px, 2.5vw, 28px);
+  border-radius:50%;
+  border:2px solid #fff;
+  box-shadow:0 0 4px rgba(0,0,0,0.5);
+  position:absolute;
+  top:0; left:0;
+  transform-origin: center;
+  z-index:10;
+}
+.player1 { background:#e91e63; }
+.player2 { background:#03a9f4; }
+.player1.glow { animation:glow 1s infinite; }
+.player2.glow { animation:glow 1s infinite; }
+@keyframes glow {
+  0%,100% { box-shadow:0 0 6px 2px rgba(255,255,255,.4); }
+  50%    { box-shadow:0 0 12px 4px rgba(255,255,255,.9); }
+}
+
+/* ==== Dice ==== */
+#diceBtn {
+  margin-top:1rem;
+  padding:.8rem 1.5rem;
+  font-size:1.1rem;
+  cursor:pointer;
+  background: linear-gradient(135deg, #e67e22, #f39c12);
+  border:none; border-radius:8px;
+  color:#fff;
+}
+#diceBtn:disabled { opacity:.5; cursor:not-allowed; }
+#diceDisplay {
+  width: 60px; height: 60px;
+  margin-top: 10px;
+  background: #555;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2rem;
+}
+#diceResult { margin-top: 10px; font-size: 1.2rem; color: #ecf0f1; }
+
+/* ==== Snake/Ladder Visuals ==== */
+#visualOverlay {
+  position:absolute; inset:0; pointer-events:none; z-index:1;
+}
+.snake-line { stroke: #e74c3c; stroke-width: 6; fill: none; stroke-linecap: round; }
+.ladder-line { stroke: #27ae60; stroke-width: 5; stroke-linecap: round; opacity: 0.4; }
+.ladder-rung { stroke: #2ecc71; stroke-width: 3; stroke-linecap: round; }
+
+/* ==== Win Modal ==== */
+#winModal {
+  position:fixed; inset:0;
+  background:rgba(0,0,0,.9);
+  display:none; flex-direction:column; align-items:center; justify-content:center;
+  color:#fff; font-size:2rem;
+  z-index:100;
+}
+#winModal button {
+  margin-top:1rem; padding:1rem 2rem; font-size:1.2rem;
+  background: #27ae60; border:none; border-radius:8px; color:#fff; cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="loginScreen" class="active">
+  <h2>🐍 Snakes & Ladders 🪜</h2>
+  <input type="text" id="roomInput" placeholder="Enter Room Code (or leave empty)" />
+  <br>
+  <button onclick="createRoom()">Create Room</button>
+  <button onclick="joinRoom()">Join Room</button>
+  <p id="errorMsg"></p>
+  <p style="font-size: 0.8rem; color: #888; margin-top: 1rem;">
+    Share the room code with your friend to play together!
+  </p>
+</div>
+
+<!-- Game Screen -->
+<div id="gameScreen">
+  <div id="roomCode"></div>
+  <div id="gameInfo">
+    <div id="p1Info" class="player-info p1">Player 1<br><small id="p1Pos">Position: 1</small></div>
+    <div id="p2Info" class="player-info p2">Player 2<br><small id="p2Pos">Position: 1</small></div>
+  </div>
+
+  <div id="game">
+    <svg id="visualOverlay"></svg>
+  </div>
+
+  <button id="diceBtn" onclick="rollDice()" disabled>Roll Dice</button>
+  <div id="diceDisplay">🎲</div>
+  <div id="diceResult"></div>
+
+  <div id="aboutSection" style="position: fixed; bottom: 4px; left: 4px;">
+    <p style="margin:0; color:rgba(236,240,241,0.5); font-size:0.6rem;">
+      hello! i am sahil badarkhe created this amazing game using claude <a href="mailto:sahilbadarkhe@gmail.com" style="color:rgba(52,152,219,0.6);">sahilbadarkhe@gmail.com</a>
+    </p>
+  </div>
+</div>
+
+<div id="winModal">
+  🎉 <span id="winner"></span> wins! 🎉
+  <button onclick="resetGame()">Play Again</button>
+</div>
+
+<script>
+const socket = io();
+const BOARD_SIZE = 10;
+const CELL_COUNT = BOARD_SIZE * BOARD_SIZE;
+const CELL_SIZE = 100 / BOARD_SIZE;
+const SNAKES = { 99:78, 95:75, 92:88, 89:68, 74:53, 64:60, 62:19, 49:11, 46:25, 16:6 };
+const LADDERS = { 2:38, 7:14, 8:31, 15:26, 21:42, 28:84, 36:44, 51:67, 71:91, 78:98, 87:94 };
+
+let myPlayerNum = null;
+let gameId = null;
+let positions = [1, 1];
+let currentPlayer = 0;
+let animating = false;
+
+// Audio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  switch(type) {
+    case 'dice':
+      osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+      break;
+    case 'move':
+      osc.type = 'triangle'; osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+      break;
+    case 'snake':
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.5);
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.6);
+      break;
+    case 'ladder':
+      osc.type = 'sine'; osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+      break;
+    case 'win':
+      [523, 659, 784, 1047, 1319].forEach((f, i) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.connect(g); g.connect(audioCtx.destination);
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.2, audioCtx.currentTime + i * 0.1);
+        g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + i * 0.1 + 0.3);
+        o.start(audioCtx.currentTime + i * 0.1);
+        o.stop(audioCtx.currentTime + i * 0.1 + 0.3);
+      });
+      break;
+  }
+}
+
+// Room functions
+function generateRoomCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function createRoom() {
+  const code = generateRoomCode();
+  joinGame(code);
+}
+
+function joinRoom() {
+  const code = document.getElementById('roomInput').value.trim().toUpperCase();
+  if (!code) {
+    document.getElementById('errorMsg').textContent = 'Please enter a room code';
+    return;
+  }
+  joinGame(code);
+}
+
+function joinGame(code) {
+  gameId = code;
+  socket.emit('joinGame', code);
+  document.getElementById('loginScreen').classList.remove('active');
+}
+
+// Socket events
+socket.on('playerAssigned', (data) => {
+  myPlayerNum = data.playerNum;
+  document.getElementById('gameScreen').classList.add('active');
+  document.getElementById('roomCode').textContent = `Room: ${gameId}`;
+  initBoard();
+});
+
+socket.on('roomFull', () => {
+  document.getElementById('errorMsg').textContent = 'Room is full!';
+  document.getElementById('loginScreen').classList.add('active');
+  document.getElementById('gameScreen').classList.remove('active');
+});
+
+socket.on('gameState', (game) => {
+  positions = [...game.positions];
+  currentPlayer = game.currentPlayer;
+  updateUI();
+  updateTokenPositions();
+});
+
+socket.on('playerMoved', (data) => {
+  animateMove(data);
+});
+
+socket.on('playerDisconnected', (data) => {
+  alert(`Player ${data.playerNum + 1} disconnected!`);
+});
+
+socket.on('gameReset', () => {
+  positions = [1, 1];
+  currentPlayer = 0;
+  document.getElementById('winModal').style.display = 'none';
+  updateUI();
+  initTokens();
+});
+
+// Build board
+const gameEl = document.getElementById('game');
+const displayOrder = [];
+for (let row = BOARD_SIZE - 1; row >= 0; row--) {
+  const base = row * BOARD_SIZE;
+  const nums = [];
+  for (let n = 1; n <= BOARD_SIZE; n++) nums.push(base + n);
+  if (row % 2 === 1) nums.reverse();
+  displayOrder.push(...nums);
+}
+const visualOrder = [...displayOrder].reverse();
+for (const i of visualOrder) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.dataset.index = i;
+  cell.textContent = i;
+  gameEl.appendChild(cell);
+}
+
+function initBoard() {
+  const cells = document.querySelectorAll('.cell');
+  const svg = document.getElementById('visualOverlay');
+  const rect = gameEl.getBoundingClientRect();
+  svg.setAttribute('width', rect.width);
+  svg.setAttribute('height', rect.height);
+  svg.innerHTML = '';
+
+  // Draw snakes
+  for (const [start, end] of Object.entries(SNAKES)) {
+    const s = cellCoords(parseInt(start));
+    const e = cellCoords(end);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${s.x} ${s.y} Q ${(s.x+e.x)/2} ${(s.y+e.y)/2 + 20} ${e.x} ${e.y}`);
+    path.setAttribute('class', 'snake-line');
+    svg.appendChild(path);
+  }
+
+  // Draw ladders
+  for (const [start, end] of Object.entries(LADDERS)) {
+    const s = cellCoords(parseInt(start));
+    const e = cellCoords(end);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', s.x); line.setAttribute('y1', s.y);
+    line.setAttribute('x2', e.x); line.setAttribute('y2', e.y);
+    line.setAttribute('class', 'ladder-line');
+    svg.appendChild(line);
+    for (let i = 1; i < 4; i++) {
+      const t = i / 4;
+      const rung = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      rung.setAttribute('x1', s.x + (e.x - s.x) * t - 8);
+      rung.setAttribute('y1', s.y + (e.y - s.y) * t);
+      rung.setAttribute('x2', s.x + (e.x - s.x) * t + 8);
+      rung.setAttribute('y2', s.y + (e.y - s.y) * t);
+      rung.setAttribute('class', 'ladder-rung');
+      svg.appendChild(rung);
+    }
+  }
+}
+
+function cellCoords(cellIdx) {
+  const logicalRow = Math.floor((cellIdx - 1) / BOARD_SIZE);
+  const colInRow = (cellIdx - 1) % BOARD_SIZE;
+  const gridRow = BOARD_SIZE - 1 - logicalRow;
+  const useReverse = (logicalRow % 2 === 1);
+  const col = useReverse ? BOARD_SIZE - 1 - colInRow : colInRow;
+  const boardRect = gameEl.getBoundingClientRect();
+  return {
+    x: col * (boardRect.width / BOARD_SIZE) + (boardRect.width / BOARD_SIZE) / 2,
+    y: gridRow * (boardRect.height / BOARD_SIZE) + (boardRect.height / BOARD_SIZE) / 2
+  };
+}
+
+// Tokens
+const token1 = document.createElement('div');
+token1.className = 'token player1';
+const token2 = document.createElement('div');
+token2.className = 'token player2';
+gameEl.appendChild(token1);
+gameEl.appendChild(token2);
+
+function updateTokenPositions() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const size = token1.offsetWidth || 24;
+  const half = size / 2;
+
+  const p1 = cellCoords(positions[0]);
+  const p2 = cellCoords(positions[1]);
+
+  token1.style.transform = `translate(${p1.x - half}px, ${p1.y - half}px)`;
+  token2.style.transform = `translate(${p2.x - half}px, ${p2.y - half}px)`;
+}
+
+function initTokens() {
+  updateTokenPositions();
+}
+
+function updateUI() {
+  document.getElementById('p1Pos').textContent = `Position: ${positions[0]}`;
+  document.getElementById('p2Pos').textContent = `Position: ${positions[1]}`;
+
+  document.getElementById('p1Info').classList.toggle('active', currentPlayer === 0);
+  document.getElementById('p2Info').classList.toggle('active', currentPlayer === 1);
+
+  const canRoll = (myPlayerNum === currentPlayer) && !animating;
+  document.getElementById('diceBtn').disabled = !canRoll;
+}
+
+async function rollDice() {
+  if (animating) return;
+  animating = true;
+  document.getElementById('diceBtn').disabled = true;
+  playSound('dice');
+
+  const diceDisplay = document.getElementById('diceDisplay');
+  const faces = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+
+  for (let i = 0; i < 10; i++) {
+    diceDisplay.textContent = faces[Math.floor(Math.random() * 6)];
+    await new Promise(r => setTimeout(r, 50));
+  }
+
+  const roll = Math.ceil(Math.random() * 6);
+  diceDisplay.textContent = faces[roll - 1];
+  document.getElementById('diceResult').textContent = `You rolled ${roll}`;
+
+  const startPos = positions[myPlayerNum];
+  let target = Math.min(startPos + roll, CELL_COUNT);
+
+  // Animate movement locally
+  const path = [];
+  for (let p = startPos + 1; p <= target; p++) path.push(p);
+
+  for (const cellIdx of path) {
+    await new Promise(r => setTimeout(r, 100));
+    document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+    document.querySelector(`.cell[data-index="${cellIdx}"]`)?.classList.add('active');
+
+    const size = token1.offsetWidth || 24;
+    const half = size / 2;
+    const pos = cellCoords(cellIdx);
+    const token = myPlayerNum === 0 ? token1 : token2;
+    token.style.transform = `translate(${pos.x - half}px, ${pos.y - half}px)`;
+    playSound('move');
+  }
+
+  // Send to server
+  socket.emit('rollDice', {
+    gameId,
+    roll,
+    currentPlayer: myPlayerNum,
+    target
+  });
+
+  // Don't set animating to false here - wait for server response
+}
+
+async function animateMove(data) {
+  animating = true;
+  const { currentPlayer: mover, roll, target, finalPosition, eventType } = data;
+
+  document.getElementById('diceDisplay').textContent = roll;
+  document.getElementById('diceResult').textContent = `Player ${mover + 1} rolled ${roll}`;
+
+  // Animate path
+  const startPos = positions[mover];
+  const path = [];
+  for (let p = startPos + 1; p <= target; p++) path.push(p);
+
+  const token = mover === 0 ? token1 : token2;
+  const size = token.offsetWidth || 24;
+  const half = size / 2;
+
+  for (const cellIdx of path) {
+    await new Promise(r => setTimeout(r, 100));
+    document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+    document.querySelector(`.cell[data-index="${cellIdx}"]`)?.classList.add('active');
+
+    const pos = cellCoords(cellIdx);
+    token.style.transform = `translate(${pos.x - half}px, ${pos.y - half}px)`;
+    playSound('move');
+  }
+
+  // Snake or ladder animation
+  if (eventType === 'snake') {
+    playSound('snake');
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.add('snakeHit');
+    await new Promise(r => setTimeout(r, 500));
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.remove('snakeHit');
+
+    const dest = cellCoords(finalPosition);
+    token.style.transition = 'transform 0.5s ease-in';
+    token.style.transform = `translate(${dest.x - half}px, ${dest.y - half}px)`;
+    await new Promise(r => setTimeout(r, 500));
+  } else if (eventType === 'ladder') {
+    playSound('ladder');
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.add('ladderClimb');
+    await new Promise(r => setTimeout(r, 500));
+    document.querySelector(`.cell[data-index="${target}"]`)?.classList.remove('ladderClimb');
+
+    const dest = cellCoords(finalPosition);
+    token.style.transition = 'transform 0.5s ease-out';
+    token.style.transform = `translate(${dest.x - half}px, ${dest.y - half}px)`;
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Update positions
+  positions = [...positions];
+  positions[mover] = finalPosition;
+  updateTokenPositions();
+  updateUI();
+
+  // Check win
+  if (finalPosition === CELL_COUNT) {
+    playSound('win');
+    document.getElementById('winner').textContent = `Player ${mover + 1}`;
+    document.getElementById('winModal').style.display = 'flex';
+  }
+
+  animating = false;
+}
+
+function resetGame() {
+  socket.emit('resetGame', gameId);
+}
+
+window.addEventListener('resize', () => {
+  initBoard();
+  updateTokenPositions();
+});
+
+initTokens();
+</script>
+</body>
+</html>
